@@ -10,7 +10,6 @@ tasks = [
     {"id": 3, "title": "Finish internship assignment", "done": False}
 ]
 
-# This defines the "shape" of the data we expect from the user
 class Task(BaseModel):
     title: str
     done: bool = False
@@ -32,23 +31,34 @@ def get_task(task_id: int):
     for task in tasks:
         if task["id"] == task_id:
             return task
-    return JSONResponse(status_code=404, content={"error": f"Task {task_id} not found"})
+    return JSONResponse(status_code=404, content={"error": "Task not found"})
 
-#stage 3 work
 @app.post("/tasks")
 def create_task(new_task: Task):
-    # Calculate the next available ID
     new_id = len(tasks) + 1
-    
-    # Creating dictionary
-    task_dict = {
-        "id": new_id,
-        "title": new_task.title,
-        "done": new_task.done
-    }
-    
-    # Append it to list
+    task_dict = {"id": new_id, "title": new_task.title, "done": new_task.done}
     tasks.append(task_dict)
-    
-    # Send the newly created task back to the client
     return task_dict
+
+# new stage 4
+
+# Update an existing task
+@app.put("/tasks/{task_id}")
+def update_task(task_id: int, updated_task: Task):
+    for index, task in enumerate(tasks):
+        if task["id"] == task_id:
+            # Overwrite the existing data
+            tasks[index]["title"] = updated_task.title
+            tasks[index]["done"] = updated_task.done
+            return tasks[index]
+    return JSONResponse(status_code=404, content={"error": "Task not found"})
+
+#deleting a task
+@app.delete("/tasks/{task_id}")
+def delete_task(task_id: int):
+    for index, task in enumerate(tasks):
+        if task["id"] == task_id:
+            # Remove the item from the list
+            deleted_task = tasks.pop(index)
+            return {"message": "Task deleted successfully", "task": deleted_task}
+    return JSONResponse(status_code=404, content={"error": "Task not found"})
