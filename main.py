@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
+# dummy database for testing
 tasks = [
     {"id": 1, "title": "Buy groceries", "done": False},
     {"id": 2, "title": "Learn FastAPI", "done": True},
@@ -16,65 +17,62 @@ class Task(BaseModel):
 
 @app.get("/")
 def read_root():
-    """Welcome message and API details."""
+    """ root endpoint """
     return {"name": "Task API", "version": "1.0", "endpoints": ["/tasks"]}
 
 @app.get("/health")
 def health_check():
-    """Check if the server is running and healthy."""
+    """ health check for server """
     return {"status": "ok"}
 
-# search fileter
 @app.get("/tasks")
 def get_tasks(search: str | None = None, done: bool | None = None):
-    """
-    Get tasks. Optionally filter by:
-    - search: text contained in title (e.g. /tasks?search=milk)
-    - done: status boolean (e.g. /tasks?done=true)
-    """
-    filtered_tasks = tasks
+    """ return all tasks or filter them """
+    res = tasks
 
     if done is not None:
-        filtered_tasks = [t for t in filtered_tasks if t["done"] == done]
+        res = [t for t in res if t["done"] == done]
 
     if search is not None:
-        filtered_tasks = [
-            t for t in filtered_tasks if search.lower() in t["title"].lower()
-        ]
+        res = [t for t in res if search.lower() in t["title"].lower()]
 
-    return filtered_tasks
+    return res
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: int):
-    """Get a single task by its ID number."""
-    for task in tasks:
-        if task["id"] == task_id:
-            return task
-    return JSONResponse(status_code=404, content={"error": "Task not found"})
+    """ find a task by id """
+    for t in tasks:
+        if t["id"] == task_id:
+            return t
+    return JSONResponse(status_code=404, content={"error": "task not found"})
 
 @app.post("/tasks")
-def create_task(new_task: Task):
-    """Create a brand new task."""
+def create_task(t: Task):
+    """ add a new task """
+    # auto-increment id logic
     new_id = len(tasks) + 1
-    task_dict = {"id": new_id, "title": new_task.title, "done": new_task.done}
-    tasks.append(task_dict)
-    return task_dict
+    new_item = {"id": new_id, "title": t.title, "done": t.done}
+    tasks.append(new_item)
+    
+    return new_item
 
 @app.put("/tasks/{task_id}")
-def update_task(task_id: int, updated_task: Task):
-    """Update an existing task's title or status."""
-    for index, task in enumerate(tasks):
-        if task["id"] == task_id:
-            tasks[index]["title"] = updated_task.title
-            tasks[index]["done"] = updated_task.done
-            return tasks[index]
-    return JSONResponse(status_code=404, content={"error": "Task not found"})
+def update_task(task_id: int, t: Task):
+    """ update title or status """
+    for i, item in enumerate(tasks):
+        if item["id"] == task_id:
+            tasks[i]["title"] = t.title
+            tasks[i]["done"] = t.done
+            return tasks[i]
+            
+    return JSONResponse(status_code=404, content={"error": "task not found"})
 
 @app.delete("/tasks/{task_id}")
 def delete_task(task_id: int):
-    """Delete a task completely."""
-    for index, task in enumerate(tasks):
-        if task["id"] == task_id:
-            deleted_task = tasks.pop(index)
-            return {"message": "Task deleted successfully", "task": deleted_task}
-    return JSONResponse(status_code=404, content={"error": "Task not found"})
+    """ remove a task """
+    for i, item in enumerate(tasks):
+        if item["id"] == task_id:
+            deleted = tasks.pop(i)
+            return {"message": "deleted", "task": deleted}
+            
+    return JSONResponse(status_code=404, content={"error": "task not found"})
