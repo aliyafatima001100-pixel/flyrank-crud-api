@@ -24,7 +24,7 @@ def health_check():
     """Check if the server is running and healthy."""
     return {"status": "ok"}
 
-# --- UPDATED: GET /tasks WITH OPTIONAL SEARCH AND FILTER ---
+# search fileter
 @app.get("/tasks")
 def get_tasks(search: str | None = None, done: bool | None = None):
     """
