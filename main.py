@@ -16,18 +16,22 @@ class Task(BaseModel):
 
 @app.get("/")
 def read_root():
+    """Welcome message and API details."""
     return {"name": "Task API", "version": "1.0", "endpoints": ["/tasks"]}
 
 @app.get("/health")
 def health_check():
+    """Check if the server is running and healthy."""
     return {"status": "ok"}
 
 @app.get("/tasks")
 def get_tasks():
+    """Get the complete list of tasks."""
     return tasks
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: int):
+    """Get a single task by its ID number."""
     for task in tasks:
         if task["id"] == task_id:
             return task
@@ -35,30 +39,27 @@ def get_task(task_id: int):
 
 @app.post("/tasks")
 def create_task(new_task: Task):
+    """Create a brand new task."""
     new_id = len(tasks) + 1
     task_dict = {"id": new_id, "title": new_task.title, "done": new_task.done}
     tasks.append(task_dict)
     return task_dict
 
-# new stage 4
-
-# Update an existing task
 @app.put("/tasks/{task_id}")
 def update_task(task_id: int, updated_task: Task):
+    """Update an existing task's title or status."""
     for index, task in enumerate(tasks):
         if task["id"] == task_id:
-            # Overwrite the existing data
             tasks[index]["title"] = updated_task.title
             tasks[index]["done"] = updated_task.done
             return tasks[index]
     return JSONResponse(status_code=404, content={"error": "Task not found"})
 
-#deleting a task
 @app.delete("/tasks/{task_id}")
 def delete_task(task_id: int):
+    """Delete a task completely."""
     for index, task in enumerate(tasks):
         if task["id"] == task_id:
-            # Remove the item from the list
             deleted_task = tasks.pop(index)
             return {"message": "Task deleted successfully", "task": deleted_task}
     return JSONResponse(status_code=404, content={"error": "Task not found"})
