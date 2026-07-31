@@ -24,10 +24,25 @@ def health_check():
     """Check if the server is running and healthy."""
     return {"status": "ok"}
 
+# --- UPDATED: GET /tasks WITH OPTIONAL SEARCH AND FILTER ---
 @app.get("/tasks")
-def get_tasks():
-    """Get the complete list of tasks."""
-    return tasks
+def get_tasks(search: str | None = None, done: bool | None = None):
+    """
+    Get tasks. Optionally filter by:
+    - search: text contained in title (e.g. /tasks?search=milk)
+    - done: status boolean (e.g. /tasks?done=true)
+    """
+    filtered_tasks = tasks
+
+    if done is not None:
+        filtered_tasks = [t for t in filtered_tasks if t["done"] == done]
+
+    if search is not None:
+        filtered_tasks = [
+            t for t in filtered_tasks if search.lower() in t["title"].lower()
+        ]
+
+    return filtered_tasks
 
 @app.get("/tasks/{task_id}")
 def get_task(task_id: int):
