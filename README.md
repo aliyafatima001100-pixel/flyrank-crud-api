@@ -12,5 +12,5 @@ A lightweight RESTful CRUD API built with Python and FastAPI for managing a task
 
 1. **Clone the repository:**
    ```bash
-   git clone <YOUR_GITHUB_REPO_URL>
+   git clone [https://github.com/aliyafatima001100-pixel/flyrank-crud-api.git](https://github.com/aliyafatima001100-pixel/flyrank-crud-api.git)
    cd flyrank
