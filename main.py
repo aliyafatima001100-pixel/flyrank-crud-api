@@ -1,173 +1,69 @@
-import sqlite3
-from fastapi import FastAPI, status, Response
-from fastapi.responses import JSONResponse
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from dotenv import load_dotenv
+load_dotenv()
 
 app = FastAPI()
-DB_NAME = "tasks.db"
-
-def get_db_connection():
-    # Open a connection to the SQLite database
-    conn = sqlite3.connect(DB_NAME)
-    # lets us access columns using names like row["title"]
-    conn.row_factory = sqlite3.Row  
-    return conn
-
-def init_db():
-    # Create the tasks table and add sample data the first time the app runs
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Creating the table if it hasn't been created already
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            done BOOLEAN NOT NULL DEFAULT 0
-        )
-    """)
-    conn.commit()
-
-    # Add sample tasks if no data in table
-    cursor.execute("SELECT COUNT(*) FROM tasks")
-    count = cursor.fetchone()[0]
-    if count == 0:
-        cursor.executemany("""
-            INSERT INTO tasks (title, done) VALUES (?, ?)
-        """, [
-            ("Buy groceries", 0),
-            ("Learn FastAPI", 1),
-            ("Finish internship assignment", 0)
-        ])
-        conn.commit()
-    
-    conn.close()
-
-# Set up  database 
-@app.on_event("startup")
-def startup_event():
-    init_db()
 
 class Task(BaseModel):
     title: str
     done: bool = False
 
-@app.get("/")
-def read_root():
-    return {"name": "Task API", "version": "2.0 (SQLite)", "endpoints": ["/tasks"]}
-
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+def get_db():
+    return psycopg2.connect(os.getenv("DATABASE_URL"))
 
 @app.get("/tasks")
-def get_tasks(search: str | None = None, done: bool | None = None):
-    # Return all tasks, or filter them if search or done is provided
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    query = "SELECT id, title, done FROM tasks WHERE 1=1"
-    params = []
-
-    if done is not None:
-        query += " AND done = ?"
-        params.append(1 if done else 0)
-
-    if search is not None:
-        query += " AND title LIKE ?"
-        params.append(f"%{search}%")
-
-    cursor.execute(query, params)
-    rows = cursor.fetchall()
+def get_tasks():
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("SELECT * FROM tasks;")
+    tasks = cursor.fetchall()
     conn.close()
+    return tasks
 
-    return [{"id": r["id"], "title": r["title"], "done": bool(r["done"])} for r in rows]
-
-@app.get("/tasks/{task_id}")
-def get_task(task_id: int):
-    # Look up a task by ID
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, title, done FROM tasks WHERE id = ?", (task_id,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if row is None:
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            content={"error": "task not found"}
-        )
+@app.post("/tasks", status_code=201)
+def create_task(task: Task):
+    if not task.title.strip():
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
     
-    return {"id": row["id"], "title": row["title"], "done": bool(row["done"])}
-
-@app.post("/tasks", status_code=status.HTTP_201_CREATED)
-def create_task(t: Task):
-    # Add task
-    if not t.title or t.title.strip() == "":
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            content={"error": "Title cannot be empty"}
-        )
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute(
-        "INSERT INTO tasks (title, done) VALUES (?, ?)",
-        (t.title.strip(), 1 if t.done else 0)
+        "INSERT INTO tasks (title, done) VALUES (%s, %s) RETURNING *;",
+        (task.title, task.done)
     )
+    new_task = cursor.fetchone()
     conn.commit()
-    new_id = cursor.lastrowid
     conn.close()
-
-    return {"id": new_id, "title": t.title.strip(), "done": t.done}
+    return new_task
 
 @app.put("/tasks/{task_id}")
-def update_task(task_id: int, t: Task):
-    # Update task
-    if not t.title or t.title.strip() == "":
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            content={"error": "Title cannot be empty"}
-        )
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # the task exists before updating it
-    cursor.execute("SELECT id FROM tasks WHERE id = ?", (task_id,))
-    if cursor.fetchone() is None:
-        conn.close()
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            content={"error": "task not found"}
-        )
-
+def update_task(task_id: int, task: Task):
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute(
-        "UPDATE tasks SET title = ?, done = ? WHERE id = ?",
-        (t.title.strip(), 1 if t.done else 0, task_id)
+        "UPDATE tasks SET title = %s, done = %s WHERE id = %s RETURNING *;",
+        (task.title, task.done, task_id)
     )
+    updated_task = cursor.fetchone()
     conn.commit()
     conn.close()
+    
+    if not updated_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return updated_task
 
-    return {"id": task_id, "title": t.title.strip(), "done": t.done}
-
-@app.delete("/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+@app.delete("/tasks/{task_id}")
 def delete_task(task_id: int):
-    # Delete a task from the database
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # to ensure that the task exists before updating it
-    cursor.execute("SELECT id FROM tasks WHERE id = ?", (task_id,))
-    if cursor.fetchone() is None:
-        conn.close()
-        return JSONResponse(
-            status_code=status.HTTP_404_NOT_FOUND, 
-            content={"error": "task not found"}
-        )
-
-    cursor.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    conn = get_db()
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+    cursor.execute("DELETE FROM tasks WHERE id = %s RETURNING *;", (task_id,))
+    deleted_task = cursor.fetchone()
     conn.commit()
     conn.close()
-
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    if not deleted_task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return {"message": "Task deleted successfully"}
