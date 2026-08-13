@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Depends
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -29,6 +29,18 @@ class UserCredentials(BaseModel):
 
 def get_db():
     return psycopg2.connect(os.getenv("DATABASE_URL"))
+
+def get_current_user(authorization: str = Header(default=None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Access token required")
+    
+    token = authorization.split(" ")[1]
+    
+    try:
+        user_response = supabase.auth.get_user(token)
+        return user_response.user
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 @app.post("/auth/signup", status_code=201)
 def signup(credentials: UserCredentials):
@@ -118,17 +130,8 @@ def get_public_info():
     return {"message": "This info is public."}
 
 @app.get("/protected/profile")
-def get_protected_profile(authorization: str = Header(default=None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Access token required")
-    
-    token = authorization.split(" ")[1]
-    try:
-        user_response = supabase.auth.get_user(token)
-        
-        return {
-            "message": "Token verified successfully",
-            "user": user_response.user
-        }
-    except Exception as e:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+def get_protected_profile(current_user = Depends(get_current_user)):
+    return {
+        "message": "Token verified successfully using Dependency Injection!",
+        "user": current_user
+    }
