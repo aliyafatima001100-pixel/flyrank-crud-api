@@ -1,3 +1,4 @@
+from fastapi import FastAPI, HTTPException, Header
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -112,3 +113,13 @@ def delete_task(task_id: int):
     if not deleted_task:
         raise HTTPException(status_code=404, detail="Task not found")
     return {"message": "Task deleted successfully"}
+@app.get("/public/info", status_code=200)
+def get_public_info():
+    return {"message": "This info is public."}
+
+@app.get("/protected/profile")
+def get_protected_profile(authorization: str = Header(default=None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Access token required")
+    token = authorization.split(" ")[1]
+    return {"message": "Reached the protected door!", "extracted_token": token}
