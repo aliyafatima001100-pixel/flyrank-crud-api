@@ -121,5 +121,14 @@ def get_public_info():
 def get_protected_profile(authorization: str = Header(default=None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Access token required")
+    
     token = authorization.split(" ")[1]
-    return {"message": "Reached the protected door!", "extracted_token": token}
+    try:
+        user_response = supabase.auth.get_user(token)
+        
+        return {
+            "message": "Token verified successfully",
+            "user": user_response.user
+        }
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
