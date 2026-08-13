@@ -1,3 +1,4 @@
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import FastAPI, HTTPException, Header, Depends
 import os
 import psycopg2
@@ -18,6 +19,7 @@ print("Server running and connected to Supabase")
 
 
 app = FastAPI()
+security = HTTPBearer()
 
 class Task(BaseModel):
     title: str
@@ -30,11 +32,8 @@ class UserCredentials(BaseModel):
 def get_db():
     return psycopg2.connect(os.getenv("DATABASE_URL"))
 
-def get_current_user(authorization: str = Header(default=None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Access token required")
-    
-    token = authorization.split(" ")[1]
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
     
     try:
         user_response = supabase.auth.get_user(token)
