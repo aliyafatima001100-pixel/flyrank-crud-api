@@ -22,8 +22,43 @@ class Task(BaseModel):
     title: str
     done: bool = False
 
+class UserCredentials(BaseModel):
+    email: str
+    password: str
+
 def get_db():
     return psycopg2.connect(os.getenv("DATABASE_URL"))
+
+@app.post("/auth/signup", status_code=201)
+def signup(credentials: UserCredentials):
+    if not credentials.email or not credentials.password:
+        raise HTTPException(status_code=400, detail="Email and password required")
+    
+    try:
+        response = supabase.auth.sign_up({
+            "email": credentials.email,
+            "password": credentials.password
+        })
+        return {"message": "User created successfully", "user": response.user}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/auth/login", status_code=200)
+def login(credentials: UserCredentials):
+    if not credentials.email or not credentials.password:
+        raise HTTPException(status_code=400, detail="Email and password required")
+    
+    try:
+        response = supabase.auth.sign_in_with_password({
+            "email": credentials.email,
+            "password": credentials.password
+        })
+        return {
+            "access_token": response.session.access_token,
+            "refresh_token": response.session.refresh_token
+        }
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid login credentials")
 
 @app.get("/tasks")
 def get_tasks():
