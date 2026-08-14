@@ -3,7 +3,6 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -71,26 +70,25 @@ def login(credentials: UserCredentials):
         }
     except Exception as e:
         raise HTTPException(status_code=401, detail="Invalid login credentials")
-
 @app.get("/tasks")
-def get_tasks():
+def get_tasks(current_user = Depends(get_current_user)):
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    cursor.execute("SELECT * FROM tasks;")
+    cursor.execute("SELECT * FROM tasks WHERE user_id = %s;", (current_user.id,))
     tasks = cursor.fetchall()
     conn.close()
     return tasks
 
 @app.post("/tasks", status_code=201)
-def create_task(task: Task):
+def create_task(task: Task, current_user = Depends(get_current_user)):
     if not task.title.strip():
         raise HTTPException(status_code=400, detail="Title cannot be empty")
     
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute(
-        "INSERT INTO tasks (title, done) VALUES (%s, %s) RETURNING *;",
-        (task.title, task.done)
+        "INSERT INTO tasks (title, done, user_id) VALUES (%s, %s, %s) RETURNING *;",
+        (task.title, task.done, current_user.id)
     )
     new_task = cursor.fetchone()
     conn.commit()
@@ -98,32 +96,34 @@ def create_task(task: Task):
     return new_task
 
 @app.put("/tasks/{task_id}")
-def update_task(task_id: int, task: Task):
+def update_task(task_id: int, task: Task, current_user = Depends(get_current_user)):
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
     cursor.execute(
-        "UPDATE tasks SET title = %s, done = %s WHERE id = %s RETURNING *;",
-        (task.title, task.done, task_id)
+        "UPDATE tasks SET title = %s, done = %s WHERE id = %s AND user_id = %s RETURNING *;",
+        (task.title, task.done, task_id, current_user.id)
     )
     updated_task = cursor.fetchone()
     conn.commit()
     conn.close()
     
     if not updated_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="Task not found or unauthorized")
     return updated_task
 
 @app.delete("/tasks/{task_id}")
-def delete_task(task_id: int):
+def delete_task(task_id: int, current_user = Depends(get_current_user)):
     conn = get_db()
     cursor = conn.cursor(cursor_factory=RealDictCursor)
-    cursor.execute("DELETE FROM tasks WHERE id = %s RETURNING *;", (task_id,))
+    cursor.execute("DELETE FROM tasks WHERE id = %s AND user_id = %s RETURNING *;", (task_id, current_user.id))
     deleted_task = cursor.fetchone()
     conn.commit()
     conn.close()
     if not deleted_task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="Task not found or unauthorized")
     return {"message": "Task deleted successfully"}
+
+
 @app.get("/public/info", status_code=200)
 def get_public_info():
     return {"message": "This info is public."}
