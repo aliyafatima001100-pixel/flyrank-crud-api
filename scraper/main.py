@@ -13,6 +13,7 @@ HEADERS = {
     "User-Agent": "FlyRankInternshipA9/1.0 (+https://github.com/aliyafatima001100-pixel/flyrank-crud-api)"
 }
 TIMEOUT = 10
+
 class BookRecord(BaseModel):
     title: str
     product_url: str
@@ -24,25 +25,60 @@ class BookRecord(BaseModel):
     source_page: str
     fetched_at: str
 
+run_stats = {
+    "pages_fetched": 0,
+    "cache_hits": 0,
+    "failed_pages": 0,
+    "valid_records": 0,
+    "invalid_records": 0
+}
+
 def fetch_html(url, cache_filename):
     cache_path = os.path.join("cache", cache_filename)
     os.makedirs("cache", exist_ok=True)
 
     if os.path.exists(cache_path):
+        run_stats["cache_hits"] += 1
         with open(cache_path, "r", encoding="utf-8") as file:
             return file.read()
 
     time.sleep(0.5)
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
-        if response.status_code != 200:
-            return None
-        html = response.text
-        with open(cache_path, "w", encoding="utf-8") as file:
-            file.write(html)
-        return html
-    except Exception:
-        return None
+
+    for attempt in range(2):
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+            
+            if response.status_code in [404, 403]:
+                print(f"Failed {url} with {response.status_code} - skipping.")
+                run_stats["failed_pages"] += 1
+                return None
+                
+            if response.status_code != 200:
+                print(f"Attempt {attempt+1} failed for {url} with {response.status_code}.")
+                if attempt == 0:
+                    time.sleep(1) 
+                    continue
+                else:
+                    run_stats["failed_pages"] += 1
+                    return None
+
+            # Success
+            run_stats["pages_fetched"] += 1
+            html = response.text
+            with open(cache_path, "w", encoding="utf-8") as file:
+                file.write(html)
+            return html
+            
+        except Exception as e:
+            print(f"Attempt {attempt+1} error fetching {url}: {e}")
+            if attempt == 0:
+                time.sleep(1)
+                continue
+            else:
+                run_stats["failed_pages"] += 1
+                return None
+                
+    return None
 
 def discover_books():
     base_url = "https://books.toscrape.com/catalogue/page-1.html"
@@ -74,12 +110,19 @@ def clean_price(price_str):
     return float(match.group()) if match else 0.0
 
 def scrape_books():
+    start_time = datetime.now(timezone.utc)
     discovered_links = discover_books()
+    
+    fake_url = "https://books.toscrape.com/catalogue/this-book-does-not-exist_9999/index.html"
+    discovered_links[fake_url] = "https://books.toscrape.com/catalogue/page-1.html"
+    
     good_records = []
     bad_records = []
     
     for book_url, source_page in discovered_links.items():
-        safe_name = book_url.split('/')[-2] + ".html"
+        # Handle the fake URL's filename safely
+        safe_name = book_url.split('/')[-2] + ".html" if "this-book-does-not-exist" not in book_url else "fake-book.html"
+        
         html = fetch_html(book_url, safe_name)
         if not html: continue
             
@@ -117,14 +160,35 @@ def scrape_books():
         except ValidationError as e:
             bad_records.append({"url": book_url, "error": str(e), "raw_data": raw_dict})
 
+    run_stats["valid_records"] = len(good_records)
+    run_stats["invalid_records"] = len(bad_records)
+    
     os.makedirs("output", exist_ok=True)
     with open("output/books.json", "w", encoding="utf-8") as f:
         json.dump(good_records, f, indent=2)
     with open("output/errors.json", "w", encoding="utf-8") as f:
         json.dump(bad_records, f, indent=2)
-    print(f"Validated and stored {len(good_records)} books to output/books.json")
-    if bad_records:
-        print(f"WARNING: {len(bad_records)} records failed validation (see output/errors.json)")
+
+    # Generate Run Report
+    end_time = datetime.now(timezone.utc)
+    duration_seconds = (end_time - start_time).total_seconds()
+    
+    report = {
+        "start_time": start_time.isoformat().replace('+00:00', 'Z'),
+        "duration_seconds": round(duration_seconds, 2),
+        "pages_fetched": run_stats["pages_fetched"],
+        "cache_hits": run_stats["cache_hits"],
+        "valid_records": run_stats["valid_records"],
+        "invalid_records": run_stats["invalid_records"],
+        "failed_pages": run_stats["failed_pages"]
+    }
+    
+    with open("output/run-report.json", "w", encoding="utf-8") as f:
+        json.dump(report, f, indent=2)
+
+    print(f"\nRun complete in {round(duration_seconds, 2)} seconds.")
+    print(f"Valid records: {run_stats['valid_records']} | Failed pages: {run_stats['failed_pages']}")
+    print("Check output/run-report.json for full details.")
 
 if __name__ == "__main__":
     scrape_books()
