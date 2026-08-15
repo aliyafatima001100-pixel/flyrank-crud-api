@@ -1,8 +1,10 @@
 import os
 import time
 import requests
+import json
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+from datetime import datetime, timezone
 
 HEADERS = {
     "User-Agent": "FlyRankInternshipA9/1.0 (+https://github.com/aliyafatima001100-pixel/flyrank-crud-api)"
@@ -16,6 +18,7 @@ def fetch_html(url, cache_filename):
     if os.path.exists(cache_path):
         with open(cache_path, "r", encoding="utf-8") as file:
             return file.read()
+
     time.sleep(0.5)
     
     try:
@@ -35,9 +38,9 @@ def fetch_html(url, cache_filename):
 def discover_books():
     base_url = "https://books.toscrape.com/catalogue/page-1.html"
     current_url = base_url
-    
     catalogue_pages_visited = 0
-    all_book_urls = []
+    
+    discovered_links = {}
     
     while current_url and catalogue_pages_visited < 3:
         catalogue_pages_visited += 1
@@ -48,24 +51,66 @@ def discover_books():
             break
             
         soup = BeautifulSoup(html, "html.parser")
-        
         book_links = soup.select('article.product_pod h3 a')
         for link in book_links:
             href = link.get('href')
             absolute_url = urljoin(current_url, href)
-            all_book_urls.append(absolute_url)
+            if absolute_url not in discovered_links:
+                discovered_links[absolute_url] = current_url
+            
         next_button = soup.select_one('li.next a')
         if next_button:
             next_href = next_button.get('href')
             current_url = urljoin(current_url, next_href)
         else:
-            current_url = None 
-    unique_urls = list(set(all_book_urls))
-    print(f"catalogue_pages={catalogue_pages_visited}")
-    print(f"discovered={len(all_book_urls)}")
-    print(f"unique_urls={len(unique_urls)}")
+            current_url = None
+
+    return discovered_links
+
+def scrape_books():
+    discovered_links = discover_books()
+    raw_records = []
     
-    return unique_urls
+    print(f"Extracting {len(discovered_links)} books... (might take ~30 seconds on first run)")
+    
+    for book_url, source_page in discovered_links.items():
+        safe_name = book_url.split('/')[-2] + ".html"
+        
+        html = fetch_html(book_url, safe_name)
+        if not html:
+            continue
+            
+        soup = BeautifulSoup(html, "html.parser")
+        product_main = soup.select_one('article.product_page')
+        
+        # Safely extract all fields (in case a page is missing something)
+        title = product_main.select_one('h1').text if product_main.select_one('h1') else None
+        price_text = product_main.select_one('p.price_color').text if product_main.select_one('p.price_color') else None
+        
+        availability_elem = product_main.select_one('p.availability')
+        availability_text = availability_elem.text.strip() if availability_elem else None
+        
+        rating_elem = product_main.select_one('p.star-rating')
+        rating_text = rating_elem['class'][1] if rating_elem and len(rating_elem['class']) > 1 else None
+        
+        desc_elem = soup.select_one('#product_description ~ p')
+        description = desc_elem.text if desc_elem else None
+        record = {
+            "title": title,
+            "product_url": book_url,
+            "price_text": price_text,
+            "availability_text": availability_text,
+            "rating_text": rating_text,
+            "description": description,
+            "source_page": source_page,
+            "fetched_at": datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+        }
+        raw_records.append(record)
+    if raw_records:
+        print(json.dumps(raw_records[0], indent=2))
+    print(f"detail_pages={len(raw_records)}")
+    
+    return raw_records
 
 if __name__ == "__main__":
-    discover_books()
+    scrape_books()
